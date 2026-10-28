@@ -6,14 +6,13 @@ import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vehicle_speed_estimator/core/services/camera_service.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
-import 'package:vehicle_speed_estimator/core/theme/cmp_typography.dart';
 import 'package:vehicle_speed_estimator/core/theme/overlay_colors.dart';
 import 'package:vehicle_speed_estimator/core/utils/geometry_utils.dart';
-import 'package:vehicle_speed_estimator/core/widgets/cmp_button.dart';
+import 'package:vehicle_speed_estimator/core/widgets/cmp_banner.dart';
 import 'package:vehicle_speed_estimator/core/widgets/gate_handle.dart';
 import 'package:vehicle_speed_estimator/core/widgets/live_camera_preview.dart';
-import 'package:vehicle_speed_estimator/core/widgets/stability_pill.dart';
 import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_notifier.dart';
+import 'package:vehicle_speed_estimator/features/calibration/presentation/widgets/gate_alignment_controls.dart';
 import 'package:vehicle_speed_estimator/features/calibration/presentation/widgets/gate_lines_painter.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/virtual_gate.dart';
 
@@ -27,8 +26,9 @@ class GateAlignmentScreen extends ConsumerStatefulWidget {
 
 class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
   CameraController? _cameraController;
-  double _aX1 = 0.25, _aY1 = 0.1, _aX2 = 0.25, _aY2 = 0.9;
-  double _bX1 = 0.75, _bY1 = 0.1, _bX2 = 0.75, _bY2 = 0.9;
+  bool _showHint = true;
+  double _aX1 = 0.25, _aY1 = 0.20, _aX2 = 0.25, _aY2 = 0.78;
+  double _bX1 = 0.75, _bY1 = 0.20, _bX2 = 0.75, _bY2 = 0.78;
 
   @override
   void initState() {
@@ -44,9 +44,7 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
     final status = await Permission.camera.request();
     if (!status.isGranted) return;
     final controller = await ref.read(cameraServiceProvider).initialize();
-    if (mounted) {
-      setState(() => _cameraController = controller);
-    }
+    if (mounted) setState(() => _cameraController = controller);
   }
 
   @override
@@ -69,9 +67,30 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
       p1: Vec2(_bX1, _bY1),
       p2: Vec2(_bX2, _bY2),
     );
-
     ref.read(calibrationNotifierProvider.notifier).setGates(gateA, gateB);
     context.push('/monitor');
+  }
+
+  void _shiftGateA(Offset d, double w, double h) {
+    setState(() {
+      final dx = d.dx / w;
+      final dy = d.dy / h;
+      _aX1 = (_aX1 + dx).clamp(0.05, 0.95);
+      _aX2 = (_aX2 + dx).clamp(0.05, 0.95);
+      _aY1 = (_aY1 + dy).clamp(0.12, 0.86);
+      _aY2 = (_aY2 + dy).clamp(0.12, 0.86);
+    });
+  }
+
+  void _shiftGateB(Offset d, double w, double h) {
+    setState(() {
+      final dx = d.dx / w;
+      final dy = d.dy / h;
+      _bX1 = (_bX1 + dx).clamp(0.05, 0.95);
+      _bX2 = (_bX2 + dx).clamp(0.05, 0.95);
+      _bY1 = (_bY1 + dy).clamp(0.12, 0.86);
+      _bY2 = (_bY2 + dy).clamp(0.12, 0.86);
+    });
   }
 
   @override
@@ -109,6 +128,7 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   m2: Offset(mX2 * w, mY2 * h),
                 ),
               ),
+              // Gate A Top, Mid, Bottom Handles
               Positioned(
                 left: (_aX1 * w) - 24,
                 top: (_aY1 * h) - 24,
@@ -116,8 +136,16 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   color: OverlayColors.gateA,
                   onPanUpdate: (d) => setState(() {
                     _aX1 = (_aX1 + d.dx / w).clamp(0.05, 0.95);
-                    _aY1 = (_aY1 + d.dy / h).clamp(0.05, 0.95);
+                    _aY1 = (_aY1 + d.dy / h).clamp(0.12, 0.86);
                   }),
+                ),
+              ),
+              Positioned(
+                left: (((_aX1 + _aX2) / 2) * w) - 24,
+                top: (((_aY1 + _aY2) / 2) * h) - 24,
+                child: GateHandle(
+                  color: OverlayColors.gateA.withValues(alpha: 0.6),
+                  onPanUpdate: (d) => _shiftGateA(d, w, h),
                 ),
               ),
               Positioned(
@@ -127,10 +155,11 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   color: OverlayColors.gateA,
                   onPanUpdate: (d) => setState(() {
                     _aX2 = (_aX2 + d.dx / w).clamp(0.05, 0.95);
-                    _aY2 = (_aY2 + d.dy / h).clamp(0.05, 0.95);
+                    _aY2 = (_aY2 + d.dy / h).clamp(0.12, 0.86);
                   }),
                 ),
               ),
+              // Gate B Top, Mid, Bottom Handles
               Positioned(
                 left: (_bX1 * w) - 24,
                 top: (_bY1 * h) - 24,
@@ -138,8 +167,16 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   color: OverlayColors.gateB,
                   onPanUpdate: (d) => setState(() {
                     _bX1 = (_bX1 + d.dx / w).clamp(0.05, 0.95);
-                    _bY1 = (_bY1 + d.dy / h).clamp(0.05, 0.95);
+                    _bY1 = (_bY1 + d.dy / h).clamp(0.12, 0.86);
                   }),
+                ),
+              ),
+              Positioned(
+                left: (((_bX1 + _bX2) / 2) * w) - 24,
+                top: (((_bY1 + _bY2) / 2) * h) - 24,
+                child: GateHandle(
+                  color: OverlayColors.gateB.withValues(alpha: 0.6),
+                  onPanUpdate: (d) => _shiftGateB(d, w, h),
                 ),
               ),
               Positioned(
@@ -149,66 +186,53 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   color: OverlayColors.gateB,
                   onPanUpdate: (d) => setState(() {
                     _bX2 = (_bX2 + d.dx / w).clamp(0.05, 0.95);
-                    _bY2 = (_bY2 + d.dy / h).clamp(0.05, 0.95);
+                    _bY2 = (_bY2 + d.dy / h).clamp(0.12, 0.86);
                   }),
                 ),
               ),
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: CmpSpacing.space16,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton.filled(
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: () => context.pop(),
-                      ),
-                      const SizedBox(width: CmpSpacing.space12),
-                      Text(
-                        'গেট সারিবদ্ধকরণ / Align Gates',
-                        style: CmpTypography.title.copyWith(color: Colors.white),
-                      ),
-                      const Spacer(),
-                      StabilityPill(isSteady: isSteady),
-                      const SizedBox(width: CmpSpacing.space12),
-                      Text(
-                        'D = ${distanceM.toStringAsFixed(1)} m',
-                        style: CmpTypography.label.copyWith(color: Colors.white),
-                      ),
-                    ],
-                  ),
+              // Top Bar per AGENT.md Section 9.4 wireframe
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: GateAlignmentTopBar(
+                  onBack: () => context.pop(),
+                  isSteady: isSteady,
+                  distanceM: distanceM,
                 ),
               ),
+              if (_showHint)
+                Positioned(
+                  top: 56,
+                  left: 80,
+                  right: 80,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _showHint = false),
+                    child: const CmpBanner(
+                      message:
+                          'মানচিত্রে চিহ্নিত দুটি চিহ্নের সাথে গেট A ও B মিলিয়ে নিন / Align A and B with landmarks',
+                      variant: CmpBannerVariant.info,
+                    ),
+                  ),
+                ),
+              // Bottom Controls per Section 9.4 wireframe
               Positioned(
                 bottom: CmpSpacing.space16,
-                left: CmpSpacing.space16,
-                right: CmpSpacing.space16,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    CmpButton(
-                      label: 'রিসেট / Reset',
-                      variant: CmpButtonVariant.secondary,
-                      isFullWidth: false,
-                      onPressed: () => setState(() {
-                        _aX1 = 0.25;
-                        _aY1 = 0.1;
-                        _aX2 = 0.25;
-                        _aY2 = 0.9;
-                        _bX1 = 0.75;
-                        _bY1 = 0.1;
-                        _bX2 = 0.75;
-                        _bY2 = 0.9;
-                      }),
-                    ),
-                    CmpButton(
-                      label: 'গেট নিশ্চিত করুন / Confirm Gates',
-                      isFullWidth: false,
-                      onPressed: isSteady ? _onConfirm : null,
-                    ),
-                  ],
+                left: 0,
+                right: 0,
+                child: GateAlignmentBottomBar(
+                  onReset: () => setState(() {
+                    _aX1 = 0.25;
+                    _aY1 = 0.20;
+                    _aX2 = 0.25;
+                    _aY2 = 0.78;
+                    _bX1 = 0.75;
+                    _bY1 = 0.20;
+                    _bX2 = 0.75;
+                    _bY2 = 0.78;
+                  }),
+                  onConfirm: _onConfirm,
+                  isConfirmEnabled: isSteady,
                 ),
               ),
             ],
@@ -218,3 +242,4 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
     );
   }
 }
+

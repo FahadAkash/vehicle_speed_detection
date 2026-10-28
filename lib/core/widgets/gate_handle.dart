@@ -1,37 +1,52 @@
 import 'package:flutter/material.dart';
 
-/// Draggable gate endpoint handle.
-/// 20 dp visual circle, 48 dp hit area, color + outline.
-/// Reference: AGENT.md Section 11.
+/// Draggable gate endpoint handle with 48 dp hit area and 24 dp high-contrast disc.
+/// Reference: AGENT.md Section 9.4 & Section 11.
 class GateHandle extends StatelessWidget {
-  const GateHandle({super.key, required this.color, required this.onPanUpdate});
+  const GateHandle({
+    required this.color,
+    required this.onPanUpdate,
+    this.label,
+    super.key,
+  });
 
   final Color color;
   final ValueChanged<Offset> onPanUpdate;
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onPanUpdate: (details) => onPanUpdate(details.delta),
       child: Container(
         width: 48.0,
         height: 48.0,
         alignment: Alignment.center,
-        color: Colors.transparent, // Expands hit test area
         child: Container(
-          width: 20.0,
-          height: 20.0,
+          width: 24.0,
+          height: 24.0,
           decoration: BoxDecoration(
-            color: color,
+            color: Colors.white,
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.black, width: 2.0),
+            border: Border.all(color: color, width: 4.0),
             boxShadow: const [
               BoxShadow(
-                color: Colors.black45,
-                blurRadius: 4.0,
-                offset: Offset(0, 1),
+                color: Colors.black87,
+                blurRadius: 6.0,
+                offset: Offset(0, 2),
               ),
             ],
+          ),
+          child: Center(
+            child: Container(
+              width: 6.0,
+              height: 6.0,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+              ),
+            ),
           ),
         ),
       ),

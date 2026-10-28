@@ -8,19 +8,16 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:vehicle_speed_estimator/core/constants/vehicle_classes.dart';
 import 'package:vehicle_speed_estimator/core/services/background_isolate_worker.dart';
 import 'package:vehicle_speed_estimator/core/services/camera_service.dart';
-import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
-import 'package:vehicle_speed_estimator/core/theme/cmp_typography.dart';
-import 'package:vehicle_speed_estimator/core/theme/overlay_colors.dart';
 import 'package:vehicle_speed_estimator/core/widgets/cmp_banner.dart';
 import 'package:vehicle_speed_estimator/core/widgets/live_camera_preview.dart';
-import 'package:vehicle_speed_estimator/core/widgets/stability_pill.dart';
-import 'package:vehicle_speed_estimator/core/widgets/status_pill.dart';
 import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_notifier.dart';
 import 'package:vehicle_speed_estimator/features/settings/domain/settings_notifier.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/tracked_vehicle_state.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/verified_speed_record.dart';
+import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_bottom_bar.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_feed_panel.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_overlay_painter.dart';
+import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_top_bar.dart';
 import 'package:vehicle_speed_estimator/features/telemetry_sync/domain/telemetry_providers.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -92,6 +89,7 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
       frameBytes: image.planes[0].bytes,
       width: image.width,
       height: image.height,
+      bytesPerRow: image.planes[0].bytesPerRow,
       timestampUs: _stopwatch.elapsedMicroseconds,
       currentGyro: cal.currentGyro,
       currentUtcMs: DateTime.now().millisecondsSinceEpoch,
@@ -103,8 +101,7 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
   void _runTestCarSimulation() {
     final cal = ref.read(calibrationNotifierProvider);
     final distanceM = cal.config.distanceM > 0 ? cal.config.distanceM : 30.0;
-    const groundTruthKmh = 54.0;
-    const speedMs = groundTruthKmh / 3.6;
+    const speedMs = 54.0 / 3.6;
     final gA = cal.gateA?.p1.x ?? 0.25;
     final gB = cal.gateB?.p1.x ?? 0.75;
     final span = (gB - gA).abs();
@@ -196,39 +193,12 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
             top: 0,
             left: 0,
             right: 0,
-            child: Container(
-              color: OverlayColors.overlayScrim,
-              padding: const EdgeInsets.symmetric(
-                horizontal: CmpSpacing.space16,
-                vertical: 8,
-              ),
-              child: Row(
-                children: [
-                  IconButton.filled(
-                    style: IconButton.styleFrom(backgroundColor: Colors.red),
-                    icon: const Icon(Icons.stop, color: Colors.white),
-                    onPressed: () => context.pop(),
-                  ),
-                  const SizedBox(width: CmpSpacing.space12),
-                  StatusPill(
-                    status: _isPaused
-                        ? MonitoringStatus.paused
-                        : MonitoringStatus.armed,
-                  ),
-                  const SizedBox(width: CmpSpacing.space12),
-                  Text(
-                    '$_inferenceMs ms',
-                    style: CmpTypography.caption.copyWith(color: Colors.white),
-                  ),
-                  const Spacer(),
-                  StabilityPill(isSteady: calState.isSteady),
-                  const SizedBox(width: CmpSpacing.space12),
-                  Text(
-                    'D = ${calState.config.distanceM.toStringAsFixed(1)} m',
-                    style: CmpTypography.label.copyWith(color: Colors.white),
-                  ),
-                ],
-              ),
+            child: MonitorTopBar(
+              onStop: () => context.pop(),
+              isPaused: _isPaused,
+              inferenceMs: _inferenceMs,
+              isSteady: calState.isSteady,
+              distanceM: calState.config.distanceM,
             ),
           ),
           if (!calState.isSteady)
@@ -246,56 +216,13 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
             bottom: 0,
             left: 0,
             right: 0,
-            child: Container(
-              color: OverlayColors.overlayScrim,
-              height: 64,
-              padding: const EdgeInsets.symmetric(
-                horizontal: CmpSpacing.space16,
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    'Verified: ${_verifiedFeed.length}',
-                    style: CmpTypography.title.copyWith(color: Colors.white),
-                  ),
-                  if (diagnosticsOn) ...[
-                    const SizedBox(width: CmpSpacing.space16),
-                    Text(
-                      'Faults: 0 | Dropped: ${_worker.droppedFramesCount}',
-                      style: CmpTypography.caption.copyWith(
-                        color: Colors.yellow,
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                  IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: _isPaused ? Colors.green : Colors.orange,
-                      minimumSize: const Size(56, 44),
-                    ),
-                    icon: Icon(
-                      _isPaused ? Icons.play_arrow : Icons.pause,
-                      color: Colors.white,
-                    ),
-                    onPressed: () => setState(() => _isPaused = !_isPaused),
-                  ),
-                  const SizedBox(width: CmpSpacing.space16),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E293B),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                    ),
-                    icon: const Icon(Icons.directions_car, size: 18),
-                    label: const Text('টেস্ট গাড়ি / Test Car'),
-                    onPressed: _runTestCarSimulation,
-                  ),
-                  const Spacer(),
-                ],
-              ),
+            child: MonitorBottomBar(
+              verifiedCount: _verifiedFeed.length,
+              diagnosticsOn: diagnosticsOn,
+              droppedFramesCount: _worker.droppedFramesCount,
+              isPaused: _isPaused,
+              onTogglePause: () => setState(() => _isPaused = !_isPaused),
+              onTestCar: _runTestCarSimulation,
             ),
           ),
         ],
@@ -303,3 +230,4 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
     );
   }
 }
+
