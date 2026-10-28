@@ -55,10 +55,19 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
     final status = await Permission.camera.request();
     if (!status.isGranted) return;
 
+    Uint8List? modelBytes;
+    try {
+      final data = await rootBundle.load('assets/models/yolov8n_int8.tflite');
+      modelBytes = data.buffer.asUint8List();
+    } catch (e) {
+      debugPrint('[LiveMonitorScreen] Model asset loading notice: $e');
+    }
+
     final calState = ref.read(calibrationNotifierProvider);
     await _worker.start(
       gates: calState.gates,
       distanceM: calState.config.distanceM,
+      modelBytes: modelBytes,
     );
 
     _workerSub = _worker.resultsStream.listen((res) {

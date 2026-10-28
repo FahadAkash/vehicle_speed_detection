@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:vehicle_speed_estimator/core/services/motion_blob_detector.dart';
+import 'package:vehicle_speed_estimator/core/services/tflite_vehicle_detector.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/logic/robust_vehicle_tracker.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/logic/speed_math_engine.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/tracked_vehicle_state.dart';
@@ -39,6 +39,7 @@ class BackgroundIsolateWorker {
   Future<void> start({
     required List<VirtualGate> gates,
     required double distanceM,
+    Uint8List? modelBytes,
   }) async {
     _receivePort = ReceivePort();
     _isolate = await Isolate.spawn(_workerEntryPoint, _receivePort!.sendPort);
@@ -51,6 +52,7 @@ class BackgroundIsolateWorker {
           'type': 'INIT',
           'gates': gates,
           'distanceM': distanceM,
+          'modelBytes': modelBytes,
         });
         completer.complete();
       } else if (message is Map<String, dynamic>) {
@@ -120,13 +122,9 @@ class BackgroundIsolateWorker {
 
     final tracker = RobustVehicleTracker();
     final mathEngine = SpeedMathEngine();
-    const detector = MotionBlobDetector();
+    final detector = TfliteVehicleDetector();
     List<VirtualGate> gates = [];
     double distanceM = 30.0;
-    Uint8List? prevGrid;
-    final currGrid = Uint8List(
-      MotionBlobDetector.gridW * MotionBlobDetector.gridH,
-    );
 
     port.listen((msg) {
       if (msg is! Map<String, dynamic>) return;
@@ -135,6 +133,10 @@ class BackgroundIsolateWorker {
       if (type == 'INIT') {
         gates = msg['gates'] as List<VirtualGate>;
         distanceM = msg['distanceM'] as double;
+        final modelBytes = msg['modelBytes'] as Uint8List?;
+        if (modelBytes != null && modelBytes.isNotEmpty) {
+          detector.initializeFromBuffer(modelBytes);
+        }
       } else if (type == 'FRAME') {
         final stopwatch = Stopwatch()..start();
         final transferable = msg['transferable'] as TransferableTypedData;
@@ -148,9 +150,12 @@ class BackgroundIsolateWorker {
         final siteName = msg['siteName'] as String;
         final speedLimitKmh = msg['speedLimitKmh'] as double?;
 
-        detector.sampleGrid(bytes, width, height, bytesPerRow, currGrid);
-        final detections = detector.detectVehicles(currGrid, prevGrid);
-        prevGrid = Uint8List.fromList(currGrid);
+        final detections = detector.detectVehicles(
+          yPlaneBytes: bytes,
+          width: width,
+          height: height,
+          bytesPerRow: bytesPerRow,
+        );
 
         final verified = tracker.processFrame(
           detections: detections,
@@ -172,6 +177,7 @@ class BackgroundIsolateWorker {
           'inferenceMs': stopwatch.elapsedMilliseconds,
         });
       } else if (type == 'STOP') {
+        detector.close();
         port.close();
       }
     });
