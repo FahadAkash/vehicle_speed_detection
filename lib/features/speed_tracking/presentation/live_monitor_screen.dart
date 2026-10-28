@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vehicle_speed_estimator/core/constants/vehicle_classes.dart';
 import 'package:vehicle_speed_estimator/core/services/background_isolate_worker.dart';
 import 'package:vehicle_speed_estimator/core/services/camera_service.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
@@ -14,11 +15,11 @@ import 'package:vehicle_speed_estimator/core/widgets/cmp_banner.dart';
 import 'package:vehicle_speed_estimator/core/widgets/live_camera_preview.dart';
 import 'package:vehicle_speed_estimator/core/widgets/stability_pill.dart';
 import 'package:vehicle_speed_estimator/core/widgets/status_pill.dart';
-import 'package:vehicle_speed_estimator/core/widgets/verified_feed_tile.dart';
 import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_notifier.dart';
 import 'package:vehicle_speed_estimator/features/settings/domain/settings_notifier.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/tracked_vehicle_state.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/verified_speed_record.dart';
+import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_feed_panel.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_overlay_painter.dart';
 import 'package:vehicle_speed_estimator/features/telemetry_sync/domain/telemetry_providers.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -97,6 +98,61 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
       siteName: cal.config.siteName,
       speedLimitKmh: cal.config.speedLimitKmh,
     );
+  }
+
+  void _runTestCarSimulation() {
+    final cal = ref.read(calibrationNotifierProvider);
+    final distanceM = cal.config.distanceM > 0 ? cal.config.distanceM : 30.0;
+    const groundTruthKmh = 54.0;
+    const speedMs = groundTruthKmh / 3.6;
+    final gA = cal.gateA?.p1.x ?? 0.25;
+    final gB = cal.gateB?.p1.x ?? 0.75;
+    final span = (gB - gA).abs();
+    final normPerSec = speedMs * (span / distanceM);
+
+    double currX = 0.05;
+    final startUs = _stopwatch.elapsedMicroseconds;
+    int step = 0;
+
+    Timer.periodic(const Duration(milliseconds: 33), (timer) {
+      if (!mounted || currX > 0.95) {
+        timer.cancel();
+        return;
+      }
+      step++;
+      final frameTimeUs = startUs + (step * 33333);
+      final track = TrackedVehicleState(
+        trackId: 101 + _verifiedFeed.length,
+        vehicleClass: VehicleClass.car,
+        left: currX,
+        top: 0.40,
+        right: currX + 0.12,
+        bottom: 0.65,
+        vx: normPerSec,
+        vy: 0.0,
+        colorHistogram: const [],
+        lastSeenTimeUs: frameTimeUs,
+      );
+      _tracksNotifier.value = [track];
+      currX += normPerSec * 0.033333;
+
+      if (currX >= gB && !_verifiedFeed.any((r) => r.trackId == track.trackId)) {
+        final rec = VerifiedSpeedRecord(
+          trackId: track.trackId,
+          vehicleClass: VehicleClass.car,
+          speedKmh: 53.8,
+          speedHalf1Kmh: 54.0,
+          speedHalf2Kmh: 53.6,
+          direction: 'A_TO_B',
+          distanceM: distanceM,
+          timestampUtcMs: DateTime.now().millisecondsSinceEpoch,
+          siteName: cal.config.siteName.isEmpty ? 'Test Road' : cal.config.siteName,
+          speedLimitKmh: cal.config.speedLimitKmh,
+        );
+        setState(() => _verifiedFeed.insert(0, rec));
+        ref.read(databaseProvider).insertRecord(rec);
+      }
+    });
   }
 
   @override
@@ -185,47 +241,7 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
                 variant: CmpBannerVariant.warning,
               ),
             ),
-          Positioned(
-            top: 48,
-            right: 0,
-            bottom: 64,
-            width: 220,
-            child: Container(
-              color: OverlayColors.overlayScrim,
-              padding: const EdgeInsets.all(CmpSpacing.space8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'LATEST VERIFIED',
-                    style: CmpTypography.caption.copyWith(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: CmpSpacing.space8),
-                  Expanded(
-                    child: _verifiedFeed.isEmpty
-                      ? Center(
-                          child: Text(
-                            'অপেক্ষমান...',
-                            style: CmpTypography.caption.copyWith(
-                              color: Colors.white54,
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: _verifiedFeed.length,
-                          itemBuilder: (ctx, i) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: VerifiedFeedTile(record: _verifiedFeed[i]),
-                          ),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          MonitorFeedPanel(verifiedFeed: _verifiedFeed),
           Positioned(
             bottom: 0,
             left: 0,
@@ -262,6 +278,20 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
                       color: Colors.white,
                     ),
                     onPressed: () => setState(() => _isPaused = !_isPaused),
+                  ),
+                  const SizedBox(width: CmpSpacing.space16),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E293B),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                    ),
+                    icon: const Icon(Icons.directions_car, size: 18),
+                    label: const Text('টেস্ট গাড়ি / Test Car'),
+                    onPressed: _runTestCarSimulation,
                   ),
                   const Spacer(),
                 ],

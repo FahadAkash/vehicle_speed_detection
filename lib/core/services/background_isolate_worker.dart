@@ -239,7 +239,7 @@ class BackgroundIsolateWorker {
         top: top,
         right: right,
         bottom: bottom,
-        histogram: List.filled(24, 1.0 / 24.0),
+        histogram: List.filled(24, 1.0 / sqrt(24.0)),
       ),
     ];
   }
