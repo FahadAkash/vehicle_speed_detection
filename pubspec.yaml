@@ -1,0 +1,56 @@
+name: vehicle_speed_estimator
+description: "Zero-Fault Phone-Only Vehicle Speed Estimator for Chattogram Metropolitan Police."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  cupertino_icons: ^1.0.8
+
+  # State management & routing
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.8.1
+
+  # Hardware & ML
+  camera: ^0.11.2
+  tflite_flutter: ^0.11.0
+  sensors_plus: ^6.1.1
+  wakelock_plus: ^1.2.11
+  permission_handler: ^11.4.0
+
+  # Mapping & Geodesic
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+
+  # Persistence & Network
+  sqlite3: ^2.9.4
+  sqlite3_flutter_libs: ^0.5.28
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  dio: ^5.8.0+1
+  csv: ^6.0.0
+  share_plus: ^10.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
+  generate: true
+
+  assets:
+    - assets/models/
+    - assets/branding/
+    - assets/fonts/
