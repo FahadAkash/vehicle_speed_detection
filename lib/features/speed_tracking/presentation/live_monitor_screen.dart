@@ -1,11 +1,17 @@
+import 'dart:async';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:vehicle_speed_estimator/core/services/background_isolate_worker.dart';
+import 'package:vehicle_speed_estimator/core/services/camera_service.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_typography.dart';
 import 'package:vehicle_speed_estimator/core/theme/overlay_colors.dart';
 import 'package:vehicle_speed_estimator/core/widgets/cmp_banner.dart';
+import 'package:vehicle_speed_estimator/core/widgets/live_camera_preview.dart';
 import 'package:vehicle_speed_estimator/core/widgets/stability_pill.dart';
 import 'package:vehicle_speed_estimator/core/widgets/status_pill.dart';
 import 'package:vehicle_speed_estimator/core/widgets/verified_feed_tile.dart';
@@ -13,6 +19,8 @@ import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_
 import 'package:vehicle_speed_estimator/features/settings/domain/settings_notifier.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/tracked_vehicle_state.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/verified_speed_record.dart';
+import 'package:vehicle_speed_estimator/features/speed_tracking/presentation/widgets/monitor_overlay_painter.dart';
+import 'package:vehicle_speed_estimator/features/telemetry_sync/domain/telemetry_providers.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class LiveMonitorScreen extends ConsumerStatefulWidget {
@@ -23,7 +31,12 @@ class LiveMonitorScreen extends ConsumerStatefulWidget {
 }
 
 class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
+  CameraController? _cameraController;
+  final BackgroundIsolateWorker _worker = BackgroundIsolateWorker();
+  StreamSubscription<TrackingFrameResult>? _workerSub;
+  final Stopwatch _stopwatch = Stopwatch()..start();
   bool _isPaused = false;
+  int _inferenceMs = 0;
   final ValueNotifier<List<TrackedVehicleState>> _tracksNotifier =
       ValueNotifier([]);
   final List<VerifiedSpeedRecord> _verifiedFeed = [];
@@ -37,6 +50,53 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _startSystem();
+  }
+
+  Future<void> _startSystem() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) return;
+
+    final calState = ref.read(calibrationNotifierProvider);
+    await _worker.start(
+      gates: calState.gates,
+      distanceM: calState.config.distanceM,
+    );
+
+    _workerSub = _worker.resultsStream.listen((res) {
+      if (!mounted) return;
+      _tracksNotifier.value = res.activeTracks;
+      _inferenceMs = res.inferenceMs;
+      if (res.verifiedRecords.isNotEmpty) {
+        setState(() {
+          for (final r in res.verifiedRecords) {
+            _verifiedFeed.insert(0, r);
+            ref.read(databaseProvider).insertRecord(r);
+          }
+        });
+      }
+    });
+
+    final cam = await ref.read(cameraServiceProvider).initialize();
+    if (mounted) {
+      setState(() => _cameraController = cam);
+      await ref.read(cameraServiceProvider).startStream(_onFrame);
+    }
+  }
+
+  void _onFrame(CameraImage image) {
+    if (_isPaused || !mounted) return;
+    final cal = ref.read(calibrationNotifierProvider);
+    _worker.dispatchFrame(
+      frameBytes: image.planes[0].bytes,
+      width: image.width,
+      height: image.height,
+      timestampUs: _stopwatch.elapsedMicroseconds,
+      currentGyro: cal.currentGyro,
+      currentUtcMs: DateTime.now().millisecondsSinceEpoch,
+      siteName: cal.config.siteName,
+      speedLimitKmh: cal.config.speedLimitKmh,
+    );
   }
 
   @override
@@ -47,6 +107,9 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
+    _workerSub?.cancel();
+    _worker.stop();
+    ref.read(cameraServiceProvider).stopStream();
     _tracksNotifier.dispose();
     super.dispose();
   }
@@ -57,25 +120,22 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
     final diagnosticsOn = ref.watch(
       settingsNotifierProvider.select((s) => s.diagnosticsMode),
     );
-    final distanceM = calState.config.distanceM;
-    final isSteady = calState.isSteady;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Camera preview layer
-          const RepaintBoundary(
-            child: SizedBox.expand(child: ColoredBox(color: Color(0xFF0F172A))),
-          ),
-          // Bounding box & gates layer
+          LiveCameraPreview(controller: _cameraController),
           RepaintBoundary(
             child: CustomPaint(
               size: Size.infinite,
-              painter: _BoundingBoxPainter(_tracksNotifier),
+              painter: MonitorOverlayPainter(
+                tracksNotifier: _tracksNotifier,
+                gateA: calState.gateA,
+                gateB: calState.gateB,
+              ),
             ),
           ),
-          // Top HUD Bar
           Positioned(
             top: 0,
             left: 0,
@@ -101,22 +161,21 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
                   ),
                   const SizedBox(width: CmpSpacing.space12),
                   Text(
-                    '30 FPS · 18 ms',
+                    '$_inferenceMs ms',
                     style: CmpTypography.caption.copyWith(color: Colors.white),
                   ),
                   const Spacer(),
-                  StabilityPill(isSteady: isSteady),
+                  StabilityPill(isSteady: calState.isSteady),
                   const SizedBox(width: CmpSpacing.space12),
                   Text(
-                    'D = ${distanceM.toStringAsFixed(1)} m',
+                    'D = ${calState.config.distanceM.toStringAsFixed(1)} m',
                     style: CmpTypography.label.copyWith(color: Colors.white),
                   ),
                 ],
               ),
             ),
           ),
-          // Tripod shake warning banner
-          if (!isSteady)
+          if (!calState.isSteady)
             const Positioned(
               top: 56,
               left: 100,
@@ -126,7 +185,6 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
                 variant: CmpBannerVariant.warning,
               ),
             ),
-          // Right Feed Panel
           Positioned(
             top: 48,
             right: 0,
@@ -148,27 +206,26 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
                   const SizedBox(height: CmpSpacing.space8),
                   Expanded(
                     child: _verifiedFeed.isEmpty
-                        ? Center(
-                            child: Text(
-                              'অপেক্ষমান...',
-                              style: CmpTypography.caption.copyWith(
-                                color: Colors.white54,
-                              ),
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: _verifiedFeed.length,
-                            itemBuilder: (ctx, i) => Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: VerifiedFeedTile(record: _verifiedFeed[i]),
+                      ? Center(
+                          child: Text(
+                            'অপেক্ষমান...',
+                            style: CmpTypography.caption.copyWith(
+                              color: Colors.white54,
                             ),
                           ),
+                        )
+                      : ListView.builder(
+                          itemCount: _verifiedFeed.length,
+                          itemBuilder: (ctx, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: VerifiedFeedTile(record: _verifiedFeed[i]),
+                          ),
+                        ),
                   ),
                 ],
               ),
             ),
           ),
-          // Bottom Bar
           Positioned(
             bottom: 0,
             left: 0,
@@ -188,7 +245,7 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
                   if (diagnosticsOn) ...[
                     const SizedBox(width: CmpSpacing.space16),
                     Text(
-                      'Faults: 0 | Dropped: 0',
+                      'Faults: 0 | Dropped: ${_worker.droppedFramesCount}',
                       style: CmpTypography.caption.copyWith(
                         color: Colors.yellow,
                       ),
@@ -215,33 +272,4 @@ class _LiveMonitorScreenState extends ConsumerState<LiveMonitorScreen> {
       ),
     );
   }
-}
-
-class _BoundingBoxPainter extends CustomPainter {
-  _BoundingBoxPainter(this.tracksNotifier) : super(repaint: tracksNotifier);
-  final ValueNotifier<List<TrackedVehicleState>> tracksNotifier;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintBox = Paint()
-      ..color = OverlayColors.trackedBox
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-
-    for (final track in tracksNotifier.value) {
-      final rect = Rect.fromLTRB(
-        track.left * size.width,
-        track.top * size.height,
-        track.right * size.width,
-        track.bottom * size.height,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-        paintBox,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BoundingBoxPainter oldDelegate) => false;
 }

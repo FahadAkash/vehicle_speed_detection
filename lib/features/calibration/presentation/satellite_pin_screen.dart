@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:vehicle_speed_estimator/core/constants/app_constants.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_colors.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
@@ -13,6 +15,7 @@ import 'package:vehicle_speed_estimator/core/widgets/cmp_button.dart';
 import 'package:vehicle_speed_estimator/core/widgets/distance_badge.dart';
 import 'package:vehicle_speed_estimator/core/widgets/step_indicator.dart';
 import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_notifier.dart';
+import 'package:vehicle_speed_estimator/features/calibration/presentation/widgets/satellite_map_layers.dart';
 
 class SatellitePinScreen extends ConsumerStatefulWidget {
   const SatellitePinScreen({super.key});
@@ -23,10 +26,34 @@ class SatellitePinScreen extends ConsumerStatefulWidget {
 
 class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
   final MapController _mapController = MapController();
+  MapLayerType _selectedLayer = MapLayerType.openStreetMap;
   LatLng? _pinA;
   LatLng? _pinB;
   bool _selectingPinA = true;
   double _distanceM = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _centerOnUserLocation();
+  }
+
+  Future<void> _centerOnUserLocation() async {
+    try {
+      final status = await Permission.locationWhenInUse.request();
+      if (status.isGranted) {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 5),
+          ),
+        );
+        if (mounted) {
+          _mapController.move(LatLng(pos.latitude, pos.longitude), 18.0);
+        }
+      }
+    } catch (_) {}
+  }
 
   void _recomputeDistance() {
     if (_pinA != null && _pinB != null) {
@@ -46,7 +73,7 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
     final center = _mapController.camera.center;
     if (_selectingPinA) {
       _pinA = center;
-      _selectingPinA = false; // Auto switch to Pin B
+      _selectingPinA = false;
     } else {
       _pinB = center;
     }
@@ -60,9 +87,7 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
       return;
     }
 
-    ref
-        .read(calibrationNotifierProvider.notifier)
-        .setSatellitePins(
+    ref.read(calibrationNotifierProvider.notifier).setSatellitePins(
           latA: _pinA!.latitude,
           lonA: _pinA!.longitude,
           latB: _pinB!.latitude,
@@ -94,13 +119,10 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
                 AppConstants.defaultMapCenterLatitude,
                 AppConstants.defaultMapCenterLongitude,
               ),
-              initialZoom: AppConstants.satelliteZoomTarget,
+              initialZoom: 17.0,
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                userAgentPackageName: 'com.example.vehicle_speed_estimator',
-              ),
+              SatelliteMapLayerWidget(layerType: _selectedLayer),
               MarkerLayer(
                 markers: [
                   if (_pinA != null)
@@ -126,6 +148,35 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
             ],
           ),
           const Center(child: Icon(Icons.add, size: 32, color: Colors.white)),
+          Positioned(
+            top: 72,
+            right: CmpSpacing.space16,
+            child: Column(
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'map_loc',
+                  backgroundColor: colors.surface,
+                  foregroundColor: colors.textPrimary,
+                  onPressed: _centerOnUserLocation,
+                  child: const Icon(Icons.my_location),
+                ),
+                const SizedBox(height: 8),
+                PopupMenuButton<MapLayerType>(
+                  icon: FloatingActionButton.small(
+                    heroTag: 'map_layer',
+                    backgroundColor: colors.surface,
+                    foregroundColor: colors.textPrimary,
+                    onPressed: null,
+                    child: const Icon(Icons.layers),
+                  ),
+                  onSelected: (l) => setState(() => _selectedLayer = l),
+                  itemBuilder: (_) => MapLayerType.values
+                      .map((l) => PopupMenuItem(value: l, child: Text(l.label)))
+                      .toList(),
+                ),
+              ],
+            ),
+          ),
           SafeArea(
             child: Column(
               children: [
@@ -197,7 +248,6 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
                       ),
                       TextButton(
                         onPressed: () {
-                          // Quick fallback dialog
                           ref
                               .read(calibrationNotifierProvider.notifier)
                               .setFallbackDistance(30.0);
@@ -221,3 +271,4 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
     );
   }
 }
+

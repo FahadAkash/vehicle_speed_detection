@@ -14,6 +14,7 @@ class CalibrationState {
     this.gateB,
     this.gateM,
     this.isSteady = true,
+    this.currentGyro = 0.0,
   });
 
   final CalibrationConfig config;
@@ -21,6 +22,13 @@ class CalibrationState {
   final VirtualGate? gateB;
   final VirtualGate? gateM;
   final bool isSteady;
+  final double currentGyro;
+
+  List<VirtualGate> get gates => [
+        if (gateA != null) gateA!,
+        if (gateM != null) gateM!,
+        if (gateB != null) gateB!,
+      ];
 
   bool get isCalibrationValid => config.isValid;
   bool get areGatesConfirmed => gateA != null && gateB != null && gateM != null;
@@ -31,6 +39,7 @@ class CalibrationState {
     VirtualGate? gateB,
     VirtualGate? gateM,
     bool? isSteady,
+    double? currentGyro,
   }) {
     return CalibrationState(
       config: config ?? this.config,
@@ -38,6 +47,7 @@ class CalibrationState {
       gateB: gateB ?? this.gateB,
       gateM: gateM ?? this.gateM,
       isSteady: isSteady ?? this.isSteady,
+      currentGyro: currentGyro ?? this.currentGyro,
     );
   }
 }

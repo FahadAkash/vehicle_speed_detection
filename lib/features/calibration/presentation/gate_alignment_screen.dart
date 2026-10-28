@@ -1,15 +1,20 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:vehicle_speed_estimator/core/services/camera_service.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_typography.dart';
 import 'package:vehicle_speed_estimator/core/theme/overlay_colors.dart';
 import 'package:vehicle_speed_estimator/core/utils/geometry_utils.dart';
 import 'package:vehicle_speed_estimator/core/widgets/cmp_button.dart';
 import 'package:vehicle_speed_estimator/core/widgets/gate_handle.dart';
+import 'package:vehicle_speed_estimator/core/widgets/live_camera_preview.dart';
 import 'package:vehicle_speed_estimator/core/widgets/stability_pill.dart';
 import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_notifier.dart';
+import 'package:vehicle_speed_estimator/features/calibration/presentation/widgets/gate_lines_painter.dart';
 import 'package:vehicle_speed_estimator/features/speed_tracking/domain/models/virtual_gate.dart';
 
 class GateAlignmentScreen extends ConsumerStatefulWidget {
@@ -21,9 +26,8 @@ class GateAlignmentScreen extends ConsumerStatefulWidget {
 }
 
 class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
-  // Gate A normalized endpoints
+  CameraController? _cameraController;
   double _aX1 = 0.25, _aY1 = 0.1, _aX2 = 0.25, _aY2 = 0.9;
-  // Gate B normalized endpoints
   double _bX1 = 0.75, _bY1 = 0.1, _bX2 = 0.75, _bY2 = 0.9;
 
   @override
@@ -33,6 +37,16 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    _initCamera();
+  }
+
+  Future<void> _initCamera() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) return;
+    final controller = await ref.read(cameraServiceProvider).initialize();
+    if (mounted) {
+      setState(() => _cameraController = controller);
+    }
   }
 
   @override
@@ -83,9 +97,10 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
 
           return Stack(
             children: [
+              LiveCameraPreview(controller: _cameraController),
               CustomPaint(
                 size: Size(w, h),
-                painter: _GateLinesPainter(
+                painter: GateLinesPainter(
                   a1: Offset(_aX1 * w, _aY1 * h),
                   a2: Offset(_aX2 * w, _aY2 * h),
                   b1: Offset(_bX1 * w, _bY1 * h),
@@ -94,7 +109,6 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   m2: Offset(mX2 * w, mY2 * h),
                 ),
               ),
-              // Gate A Handles
               Positioned(
                 left: (_aX1 * w) - 24,
                 top: (_aY1 * h) - 24,
@@ -117,7 +131,6 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   }),
                 ),
               ),
-              // Gate B Handles
               Positioned(
                 left: (_bX1 * w) - 24,
                 top: (_bY1 * h) - 24,
@@ -140,7 +153,6 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                   }),
                 ),
               ),
-              // Top Bar
               SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -156,24 +168,19 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
                       const SizedBox(width: CmpSpacing.space12),
                       Text(
                         'গেট সারিবদ্ধকরণ / Align Gates',
-                        style: CmpTypography.title.copyWith(
-                          color: Colors.white,
-                        ),
+                        style: CmpTypography.title.copyWith(color: Colors.white),
                       ),
                       const Spacer(),
                       StabilityPill(isSteady: isSteady),
                       const SizedBox(width: CmpSpacing.space12),
                       Text(
                         'D = ${distanceM.toStringAsFixed(1)} m',
-                        style: CmpTypography.label.copyWith(
-                          color: Colors.white,
-                        ),
+                        style: CmpTypography.label.copyWith(color: Colors.white),
                       ),
                     ],
                   ),
                 ),
               ),
-              // Bottom Controls
               Positioned(
                 bottom: CmpSpacing.space16,
                 left: CmpSpacing.space16,
@@ -210,51 +217,4 @@ class _GateAlignmentScreenState extends ConsumerState<GateAlignmentScreen> {
       ),
     );
   }
-}
-
-class _GateLinesPainter extends CustomPainter {
-  _GateLinesPainter({
-    required this.a1,
-    required this.a2,
-    required this.b1,
-    required this.b2,
-    required this.m1,
-    required this.m2,
-  });
-
-  final Offset a1, a2, b1, b2, m1, m2;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintA = Paint()
-      ..color = OverlayColors.gateA
-      ..strokeWidth = 3.0
-      ..strokeCap = StrokeCap.round;
-    final paintB = Paint()
-      ..color = OverlayColors.gateB
-      ..strokeWidth = 3.0
-      ..strokeCap = StrokeCap.round;
-    final paintM = Paint()
-      ..color = OverlayColors.gateM
-      ..strokeWidth = 2.0;
-
-    canvas.drawLine(a1, a2, paintA);
-    canvas.drawLine(b1, b2, paintB);
-
-    // Dashed line for Gate M
-    const dashLength = 8.0, gapLength = 6.0;
-    final totalLen = (m2 - m1).distance;
-    final dir = (m2 - m1) / totalLen;
-    double dist = 0.0;
-    while (dist < totalLen) {
-      final start = m1 + dir * dist;
-      final end = m1 + dir * (dist + dashLength).clamp(0.0, totalLen);
-      canvas.drawLine(start, end, paintM);
-      dist += dashLength + gapLength;
-    }
-  }
-
-  @override
-  bool shouldRepaint(_GateLinesPainter old) =>
-      old.a1 != a1 || old.a2 != a2 || old.b1 != b1 || old.b2 != b2;
 }
