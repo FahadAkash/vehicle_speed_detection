@@ -8,13 +8,12 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:vehicle_speed_estimator/core/constants/app_constants.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_colors.dart';
 import 'package:vehicle_speed_estimator/core/theme/cmp_spacing.dart';
-import 'package:vehicle_speed_estimator/core/theme/cmp_typography.dart';
 import 'package:vehicle_speed_estimator/core/utils/haversine_calculator.dart';
 import 'package:vehicle_speed_estimator/core/widgets/cmp_app_bar.dart';
-import 'package:vehicle_speed_estimator/core/widgets/cmp_button.dart';
 import 'package:vehicle_speed_estimator/core/widgets/distance_badge.dart';
 import 'package:vehicle_speed_estimator/core/widgets/step_indicator.dart';
 import 'package:vehicle_speed_estimator/features/calibration/domain/calibration_notifier.dart';
+import 'package:vehicle_speed_estimator/features/calibration/presentation/widgets/pin_selection_controls.dart';
 import 'package:vehicle_speed_estimator/features/calibration/presentation/widgets/satellite_map_layers.dart';
 
 class SatellitePinScreen extends ConsumerStatefulWidget {
@@ -49,7 +48,7 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
           ),
         );
         if (mounted) {
-          _mapController.move(LatLng(pos.latitude, pos.longitude), 18.0);
+          _mapController.move(LatLng(pos.latitude, pos.longitude), 17.0);
         }
       }
     } catch (_) {}
@@ -186,82 +185,28 @@ class _SatellitePinScreenState extends ConsumerState<SatellitePinScreen> {
                 ),
                 DistanceBadge(distanceM: _distanceM),
                 const Spacer(),
-                Container(
-                  padding: const EdgeInsets.all(CmpSpacing.space16),
-                  color: colors.surface.withValues(alpha: 0.95),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SegmentedButton<bool>(
-                              segments: const [
-                                ButtonSegment(
-                                  value: true,
-                                  label: Text('পিন এ / Pin A'),
-                                ),
-                                ButtonSegment(
-                                  value: false,
-                                  label: Text('পিন বি / Pin B'),
-                                ),
-                              ],
-                              selected: {_selectingPinA},
-                              onSelectionChanged: (set) =>
-                                  setState(() => _selectingPinA = set.first),
-                            ),
-                          ),
-                          const SizedBox(width: CmpSpacing.space8),
-                          IconButton.outlined(
-                            icon: const Icon(Icons.undo),
-                            onPressed: () {
-                              if (_pinB != null) {
-                                _pinB = null;
-                              } else if (_pinA != null) {
-                                _pinA = null;
-                                _selectingPinA = true;
-                              }
-                              _recomputeDistance();
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: CmpSpacing.space12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: CmpButton(
-                              label: 'পিন বসান / Drop Pin',
-                              icon: Icons.pin_drop,
-                              variant: CmpButtonVariant.secondary,
-                              onPressed: _dropCurrentPin,
-                            ),
-                          ),
-                          const SizedBox(width: CmpSpacing.space12),
-                          Expanded(
-                            child: CmpButton(
-                              label: 'পরবর্তী / Continue',
-                              onPressed: canContinue ? _onContinue : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          ref
-                              .read(calibrationNotifierProvider.notifier)
-                              .setFallbackDistance(30.0);
-                          context.push('/calibration/gates');
-                        },
-                        child: Text(
-                          'চিহ্ন দেখতে পাচ্ছেন না? ডিফল্ট ৩০মি নির্বাচন করুন',
-                          style: CmpTypography.caption.copyWith(
-                            color: colors.textSecondary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                PinSelectionControls(
+                  selectingPinA: _selectingPinA,
+                  canContinue: canContinue,
+                  onSelectPinAChanged: (val) =>
+                      setState(() => _selectingPinA = val),
+                  onUndo: () {
+                    if (_pinB != null) {
+                      _pinB = null;
+                    } else if (_pinA != null) {
+                      _pinA = null;
+                      _selectingPinA = true;
+                    }
+                    _recomputeDistance();
+                  },
+                  onDropPin: _dropCurrentPin,
+                  onContinue: _onContinue,
+                  onSelectFallback: () {
+                    ref
+                        .read(calibrationNotifierProvider.notifier)
+                        .setFallbackDistance(30.0);
+                    context.push('/calibration/gates');
+                  },
                 ),
               ],
             ),

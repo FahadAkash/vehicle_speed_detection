@@ -18,11 +18,6 @@ class SatelliteMapLayerWidget extends StatelessWidget {
 
   final MapLayerType layerType;
 
-  static const _headers = {
-    'User-Agent':
-        'CMP-Speed-Estimator/1.0 (contact: info@cmp.police.gov.bd)',
-  };
-
   @override
   Widget build(BuildContext context) {
     switch (layerType) {
@@ -30,7 +25,6 @@ class SatelliteMapLayerWidget extends StatelessWidget {
         return TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.example.vehicle_speed_estimator',
-          tileProvider: NetworkTileProvider(headers: _headers),
           maxZoom: 19,
           maxNativeZoom: 19,
         );
@@ -39,7 +33,6 @@ class SatelliteMapLayerWidget extends StatelessWidget {
           urlTemplate:
               'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
           userAgentPackageName: 'com.example.vehicle_speed_estimator',
-          tileProvider: NetworkTileProvider(headers: _headers),
           maxZoom: 18,
           maxNativeZoom: 18,
         );
@@ -48,7 +41,6 @@ class SatelliteMapLayerWidget extends StatelessWidget {
           urlTemplate:
               'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.example.vehicle_speed_estimator',
-          tileProvider: NetworkTileProvider(headers: _headers),
           maxZoom: 19,
           maxNativeZoom: 19,
         );
